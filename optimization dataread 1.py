@@ -1,7 +1,9 @@
 import pandas_datareader.data as web
 import pandas as pd
 from dwave.system import DWaveSampler, EmbeddingComposite
-from pyqubo import Spin
+import dimod
+import pyqubo
+import neal
 names = ['KRKNP', 'MFGS', 'GAZP', 'SIBN', 'BANEP', 'RNFT', 'ROSN', 'LKOH',
          'TATN', 'USBN', 'BSPB', 'VTBR', 'SBER', 'KUZB', 'PRMB', 'ROSB', 'CBOM',
          'TCSG', 'KOGK', 'UKUZ', 'ALNU', 'RASP']
@@ -15,6 +17,8 @@ banks = [['USBN', 1.53, 0.0656], ['BSPB', 2.70, 44.9], ['VTBR', 4.76, 0.034005],
          ['MEAN', 13.8, 0]]
 gornodob = [['KOGK', 1.90, 45000], ['UKUZ', 2.67, 496], ['ALNU', 2.72, 56800],
             ['RASP', 5.98, 116.06], ['MEAN', 7.30, 0]]
+B = 1000000
+sampler = EmbeddingComposite(DWaveSampler())
 Ef = []
 f = []
 cost_max = [0 for k in range(len(names))]
@@ -32,9 +36,7 @@ def efficiency(E):
 
 
 def covariation(x, y):
-    print(M(x), M(y))
     s = pd.Series((x - M(x)) * (y - M(y)))
-    print(s.mean())
     cov = M(pd.Series((x - M(x)) * (y - M(y))))
     return cov
 
@@ -52,30 +54,26 @@ def data_read(f):
     return f
 
 
-def create_matrix_covariation():
+def create_matrix_covariation(matrix_covariation):
     for i in range(len(names)):
         for j in range(len(names)):
             matrix_covariation[i] += [covariation(cost_max[i], cost_max[j])]
-    matrix_covariation = pd.DataFrame(matrix_covariation,
-                                      index=names, columns=names)
     return matrix_covariation
 
 
 Ef = efficiency(Ef)
 f = data_read(f)
-matrix_covariation = create_matrix_covariation()
+matrix_covariation = create_matrix_covariation(matrix_covariation)
 A = []
 for i in range(len(Ef)):
-    A += B*2 / len(Ef)
-x = Array.create('x', shape=len(Ef), vartype='BINARY')
+    A += [B*2 / len(Ef)]
+x = pyqubo.Array.create('x', shape=len(Ef), vartype='BINARY')
 H1 = -sum(a * e for a, e in zip(x, Ef))
 for i in range(len(Ef)):
     for j in range(len(Ef)):
         H1 += x[i] * x[j] * matrix_covariation[i][j]
 H2 = (sum(a * A for a, A in zip(x, A)) - B)**2
 H = H1 + H2
-model = H.compile()
-Q = model.to_bqm()
+Q, offset = H.compile().to_qubo()
 sampleset = sampler.sample_qubo(Q, num_reads=5000)
 print(sampleset)
-print(Ef)
